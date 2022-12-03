@@ -20,7 +20,7 @@ def compute_on_dataset(model, data_loader, device, timer=None, vis=False):
     model.eval()
     results_dict = {}
     cpu_device = torch.device("cpu")
-    for _, batch in enumerate(tqdm(data_loader)):
+    for batch_idx, batch in enumerate(tqdm(data_loader)):
         images, targets, rois, image_ids = batch
         with torch.no_grad():
             if timer:
@@ -39,10 +39,12 @@ def compute_on_dataset(model, data_loader, device, timer=None, vis=False):
             if vis:
                 data_path = data_loader.dataset.root
                 img_infos = [data_loader.dataset.get_img_info(ind) for ind in image_ids]
-                vis_results(output, img_infos, data_path, show_mask_heatmaps=False)
+                if batch_idx%500 ==0:
+                    vis_results(output, img_infos, data_path, show_mask_heatmaps=False)
         results_dict.update(
             {img_id: result for img_id, result in zip(image_ids, output)}
         )
+
     return results_dict
 
 

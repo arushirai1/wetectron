@@ -50,11 +50,13 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             self.ids = f.readlines()
         self.ids = [x.strip("\n") for x in self.ids]
         self.id_to_img_map = {k: v for k, v in enumerate(self.ids)}
-
-        cls = PascalVOCDataset.CLASSES
-        self.class_to_ind = dict(zip(cls, range(len(cls))))
-        self.categories = dict(zip(range(len(cls)), cls))
-        
+        if 'test' in self.image_set:
+            from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL
+            self.cls = COCO_CATEGORIES_TO_PASCAL
+        else:
+            self.cls = PascalVOCDataset.CLASSES
+        self.class_to_ind = dict(zip(self.cls, range(len(self.cls))))
+        self.categories = dict(zip(range(len(self.cls)), self.cls))
         # Include proposals from a file
         if proposal_file is not None:
             print('Loading proposals from: {}'.format(proposal_file))
@@ -176,4 +178,4 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             return  {"height": img.size[1], "width": img.size[0], "file_name": file_name}
         
     def map_class_id_to_class_name(self, class_id):
-        return PascalVOCDataset.CLASSES[class_id]
+        return self.cls[class_id]

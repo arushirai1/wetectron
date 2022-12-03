@@ -102,7 +102,11 @@ class DatasetCatalog(object):
         "cityscapes_fine_instanceonly_seg_test_cocostyle": {
             "img_dir": "cityscapes/images",
             "ann_file": "cityscapes/annotations/instancesonly_filtered_gtFine_test.json"
-        }
+        },
+        "sbucaps": {
+            "data_dir": "sbucaps",
+            "ann_file": "",
+        },
     }
 
     @staticmethod
@@ -138,6 +142,16 @@ class DatasetCatalog(object):
             )
             return dict(
                 factory="COCODataset",
+                args=args,
+            )
+        elif "sbucaps" in name:
+            data_dir = DatasetCatalog.DATA_DIR
+            attrs = DatasetCatalog.DATASETS[name]
+            args = dict(
+                data_dir=os.path.join(data_dir, attrs["data_dir"]),
+            )
+            return dict(
+                factory="SBUCapsDataset",
                 args=args,
             )
         raise RuntimeError("Dataset not available: {}".format(name))

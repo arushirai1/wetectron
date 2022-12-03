@@ -31,6 +31,14 @@ VOC_CATEGORIES = ["__background",
     "aeroplane","bicycle","bird","boat","bottle","bus","car","cat","chair", "cow","diningtable","dog",
     "horse","motorbike","person","pottedplant","sheep","sofa","train","tvmonitor"]
 
+coco_category_names_pascal_index = ["__background",
+    "airplane","bicycle","bird","boat","bottle","bus","car","cat","chair", "cow","dining table","dog",
+    "horse","motorcycle","person","potted plant","sheep","couch","train","tv"]
+PASCAL_TO_COCO_CATEGORIES = {pascal_label: COCO_CATEGORIES.index(coco_category_names_pascal_index[i]) for i, pascal_label in enumerate(VOC_CATEGORIES)}
+COCO_CATEGORIES_TO_PASCAL = [""]*81# for pascal_label, coco_idx in PASCAL_TO_COCO_CATEGORIES.items()]
+for pascal_label, coco_idx in PASCAL_TO_COCO_CATEGORIES.items():
+    COCO_CATEGORIES_TO_PASCAL[coco_idx] = pascal_label
+print("PASCAL MAPPED TO COCO LABEL VECTOR:", COCO_CATEGORIES_TO_PASCAL)
 def compute_colors_for_labels(labels):
     """ Simple function that adds fixed colors depending on the class """
     palette = torch.tensor([2 ** 25 - 1, 2 ** 15 - 1, 2 ** 21 - 1])
@@ -144,7 +152,7 @@ def overlay_class_names(image, predictions, CATEGORIES):
         x, y = box[:2]
         s = template.format(label, score)
         cv2.putText(
-            image, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1
+            image, s, (x.type(torch.int).item(), y.type(torch.int).item()), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1
         )
     return image
 
@@ -154,12 +162,12 @@ def vis_results(
         data_path,
         show_mask_heatmaps=False,
         masks_per_dim=2,
-        min_image_size=224
+        min_image_size=224,
+        TRAIN_DATA='COCO'
     ):
     confidence_threshold = cfg.TEST.VIS_THRES
     mask_threshold = -1 if show_mask_heatmaps else 0.5
     masker = Masker(threshold=mask_threshold, padding=1)
-    
     for prediction, img_info in zip(predictions, img_infos):
         img_name = img_info['file_name']
         image = cv2.imread(os.path.join(data_path, img_name))
@@ -196,7 +204,9 @@ def vis_results(
             if 'coco' in data_path:
                 CATEGORIES = COCO_CATEGORIES
             elif 'voc' in data_path:
-                CATEGORIES = VOC_CATEGORIES
+                CATEGORIES = VOC_CATEGORIES if 'voc' in TRAIN_DATA else COCO_CATEGORIES_TO_PASCAL
+            elif 'sbucaps' in data_path:
+                CATEGORIES = COCO_CATEGORIES
             else:
                 raise ValueError
             result = overlay_class_names(result, prediction, CATEGORIES)

@@ -8,7 +8,7 @@ import logging
 import time
 import torch
 from apex import amp
-from wetectron.utils.comm import get_world_size
+from wetectron.utils.comm import get_world_size, get_rank
 
 
 def reduce_loss_dict(loss_dict):
@@ -51,6 +51,7 @@ def update_momentum(optimizer, cur_lr, new_lr, logger, SCALE_MOMENTUM_THRESHOLD 
                 param_state['momentum_buffer'] *= correction    
 
 def do_train(
+    wandb,
     model,
     data_loader,
     optimizer,
@@ -120,6 +121,14 @@ def do_train(
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
         if iteration % 20 == 0 or iteration == max_iter:
+            if torch.distributed.get_rank() == 0:
+
+                logging_items = {key: smoothed_val.avg for key, smoothed_val in
+                                 meters.meters.items()
+                                 }
+                logging_items['iteration'] = iteration
+                wandb.log(logging_items)
+
             logger.info(
                 meters.delimiter.join(
                     [
@@ -152,6 +161,7 @@ def do_train(
 
 
 def do_train_cdb(
+    wandb,
     model,
     model_cdb,
     data_loader,
@@ -230,6 +240,12 @@ def do_train_cdb(
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
         if iteration % 20 == 0 or iteration == max_iter:
+            logging_items={ key: smoothed_val.avg for key, smoothed_val in
+                meters.meters
+            }
+            breakpoint()
+            logging_items['iteration'] = iteration
+            wandb.log(logging_items)
             logger.info(
                 meters.delimiter.join(
                     [

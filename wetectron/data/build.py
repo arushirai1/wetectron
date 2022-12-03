@@ -17,7 +17,7 @@ from .collate_batch import BatchCollator, BBoxAugCollator
 from .transforms import build_transforms
 
 
-def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, proposal_files=None):
+def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, proposal_files=None, em_path=None):
     """
     Arguments:
         dataset_list (list[str]): Contains the names of the datasets, i.e.,
@@ -44,8 +44,10 @@ def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, prop
         # for COCODataset, we want to remove images without annotations during training
         if data["factory"] == "COCODataset":
             args["remove_images_without_annotations"] = (is_train and is_labeled)
-        if data["factory"] == "PascalVOCDataset":
+        elif data["factory"] == "PascalVOCDataset":
             args["use_difficult"] = not is_train
+        elif data['factory'] == 'SBUCapsDataset':
+            args['em_path'] = em_path
         args["transforms"] = transforms
         
         # load proposal
@@ -170,7 +172,8 @@ def make_data_loader(cfg, is_train=True, is_distributed=False, start_iter=0):
     
     # If bbox aug is enabled in testing, simply set transforms to None and we will apply transforms later
     transforms = None if not is_train and cfg.TEST.BBOX_AUG.ENABLED else build_transforms(cfg, is_train)
-    datasets = build_dataset(dataset_list, transforms, DatasetCatalog, is_train, proposal_files)
+    em_path = None if not is_train else cfg.DATASETS.EM_PATH
+    datasets = build_dataset(dataset_list, transforms, DatasetCatalog, is_train, proposal_files, em_path)
     if is_train:
         # save category_id to label name mapping
         save_labels(datasets, cfg.OUTPUT_DIR)
