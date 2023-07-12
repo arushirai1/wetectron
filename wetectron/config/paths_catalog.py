@@ -107,6 +107,14 @@ class DatasetCatalog(object):
             "data_dir": "sbucaps",
             "ann_file": "",
         },
+        "sbucaps_copy_archive2": {
+            "data_dir": "sbucaps_copy_archive2",
+            "ann_file": "",
+        },
+        "redcaps": {
+            "data_dir": "redcaps",
+            "ann_file": "",
+        },
     }
 
     @staticmethod
@@ -152,6 +160,16 @@ class DatasetCatalog(object):
             )
             return dict(
                 factory="SBUCapsDataset",
+                args=args,
+            )
+        elif "redcaps" in name:
+            data_dir = DatasetCatalog.DATA_DIR
+            attrs = DatasetCatalog.DATASETS[name]
+            args = dict(
+                data_dir=os.path.join(data_dir, attrs["data_dir"]),
+            )
+            return dict(
+                factory="RedCapsDataset",
                 args=args,
             )
         raise RuntimeError("Dataset not available: {}".format(name))

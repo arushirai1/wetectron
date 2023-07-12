@@ -1,3 +1,4 @@
+DTYPE: 'float16'
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
   WEIGHT: "catalog://VGGImageNetPretrained/JCJOHNS/VGG-16" 
@@ -19,30 +20,34 @@ MODEL:
     OICR_P: 0.15
     REGRESS_ON: True
 DATASETS:
-  TRAIN: ("coco_2014_train",)
-  TEST: ("coco_2014_val",)
+  EM_PATH: "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/analysis_scripts/sbucaps_clip_based_ems.csv"
+  TRAIN: ("sbucaps_copy_archive2",)
+  TEST: ("voc_2007_test",)
 PROPOSAL_FILES:
-  TRAIN: ('proposal/MCG-coco_2014_train-boxes.pkl',)
-  TEST:  ('proposal/MCG-coco_2014_val-boxes.pkl',)
+  TRAIN: ('datasets/sbucaps_copy_archive2/proposal_df.csv',)
+  TEST:  ('proposal/SS-voc_2007_test-boxes.pkl',)
 DATALOADER:
-  SIZE_DIVISIBILITY: 32
+  SIZE_DIVISIBILITY: 8
+  WEIGHTED_SAMPLING: True
 INPUT:
   MIN_SIZE_TRAIN: (480, 576, 688, 864, 1000, 1200) 
   MAX_SIZE_TRAIN: 2000
   MIN_SIZE_TEST: 800
   MAX_SIZE_TEST: 2000
 SOLVER:
-  IMS_PER_BATCH: 8 
-  BASE_LR: 0.01 
+  IMS_PER_BATCH: 4
+  BASE_LR: 0.01
   WEIGHT_DECAY: 0.0001
-  STEPS: (90000, 120000)
-  MAX_ITER: 130000
+  STEPS: (30000, 46700)
+  MAX_ITER: 50100
+  ITER_SIZE: 2
   CHECKPOINT_PERIOD: 10000
 TEST:
+  IMS_PER_BATCH: 5
   BBOX_AUG:
     ENABLED: True
     HEUR: "AVG"
     H_FLIP: True
-    SCALES: (480, 576, 688, 864) 
+    SCALES: (480, 576, 688, 864, 1000, 1200) 
     MAX_SIZE: 2000
     SCALE_H_FLIP: True

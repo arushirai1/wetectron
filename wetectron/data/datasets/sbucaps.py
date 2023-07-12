@@ -1,11 +1,11 @@
 import os
 import pickle
-
+from pathlib import Path
 import torch
 import torch.utils.data
 from PIL import Image
 import xml.etree.ElementTree as ET
-
+import random 
 from wetectron.structures.bounding_box import BoxList
 from wetectron.structures.boxlist_ops import remove_small_boxes
 from .coco import unique_boxes
@@ -22,23 +22,47 @@ class SBUCapsDataset(torch.utils.data.Dataset):
 
     CLASSES = tuple(get_coco_labels())
 
-    def __init__(self, data_dir, use_difficult=False, transforms=None, proposal_file=None, em_path=None):
+    def __init__(self, data_dir, use_difficult=False, transforms=None, proposal_file=None, em_path=None, ood_experiments=False, scale_exp=False, weak_det_exp_sample_size=None):
         self.root = data_dir
         self.transforms = transforms
 
         self._imgpath = os.path.join(self.root, "images", "%s.jpg")
-        self._imgsetpath = "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/create_data_subsets/test_sbucaps_coco_subset.csv"
 
+        if ood_experiments:
+            self._imgsetpath = "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/create_data_subsets/OODEMNLP23/id_test.csv"#sbucaps_cross_category_splits/id_test_df.csv"#test_sbucaps_coco_subset.csv"
+        elif scale_exp:
+            self._imgsetpath = "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/create_data_subsets/sbucaps_scale_100K_subset_scale.csv"
+        else:
+            self._imgsetpath = "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/create_data_subsets/test_sbucaps_coco_subset.csv"
         self.df = pd.read_csv(self._imgsetpath).sort_values('img_id')
         self.df = self.df.reset_index()
         cls = SBUCapsDataset.CLASSES
         self.class_to_ind = dict(zip(cls, range(len(cls))))
+        if weak_det_exp_sample_size is not None:
+            # restrict to only VOC classes
+            from wetectron.utils.visualize import coco_category_names_pascal_index
+            self.class_subset = coco_category_names_pascal_index
+        else:
+            self.class_subset = None
         self.categories = dict(zip(range(len(cls)), cls))
         
         # Include proposals from a file
         self.proposal_df = pd.read_csv(proposal_file).sort_values('img_id')
+        if 'img_info' not in self.proposal_df.columns:
+            # load img_infos
+            if Path("/afs/cs.pitt.edu/usr0/arr159/wetectron_epiphany/wetectron/datasets/sbucaps_copy_archive2/aspect_ratio_df_sbucaps_coco.csv").exists():
+                img_info_df=pd.read_csv("/afs/cs.pitt.edu/usr0/arr159/wetectron_epiphany/wetectron/datasets/sbucaps_copy_archive2/aspect_ratio_df_sbucaps_coco.csv")#'outputs3/aspect_ratio_df.csv')
+            elif Path("/afs/cs.pitt.edu/usr0/arr159/wetectron_quixote/datasets/sbucaps_copy_archive2/aspect_ratio_df_sbucaps_coco.csv").exists():
+                img_info_df=pd.read_csv("/afs/cs.pitt.edu/usr0/arr159/wetectron_quixote/datasets/sbucaps_copy_archive2/aspect_ratio_df_sbucaps_coco.csv")#'outputs3/aspect_ratio_df.csv')
+            else:
+                img_info_df = pd.read_csv('/archive1/arr159/sbucaps/aspect_ratio_df_sbucaps_coco.csv')
+            assert len(img_info_df) == len(self.proposal_df)
+            self.proposal_df=self.proposal_df.merge(img_info_df, on="img_id")
+        self.proposal_df=self.proposal_df[self.proposal_df['img_id'].isin(self.df['img_id'].values)]
         self.proposal_df = self.proposal_df.reset_index()
+
         assert (self.df['img_id'] == self.proposal_df['img_id']).all()
+
         self.img_infos=[literal_eval(img_info) for img_info in self.proposal_df['img_info'].values]
         # for i, row in tqdm(self.df.iterrows()):
         #     img_id = row['img_id']
@@ -47,20 +71,43 @@ class SBUCapsDataset(torch.utils.data.Dataset):
         #         'width': w,
         #         'height': h
         #     })
+
         print("Finished preprocessing sbucaps")
         self.proposal_df['img_info']=self.img_infos
         self.top_k = -1
         self.balanced_mapping=None
-        if em_path is not None:
+        use_balanced_mapping=False
+        if em_path is not None and 'unfiltered' not in em_path:
             em_df = pd.read_csv(em_path).sort_values('img_id')
             assert (em_df['img_id'].values == self.df['img_id'].values).all()
             self.df['em'] = em_df['em'].values
-            if 'sbucaps_sbucaps1e7_classification_mlp_meanBCE_ems' in em_path:
-                with open("/afs/cs.pitt.edu/usr0/arr159/wetectron/datasets/sbucaps/object_specific_positive_samples_sbucaps_filtered_set.json", 'r') as f:
-                    self.balanced_mapping = json.load(f)
+            if use_balanced_mapping:
+                if 'sbucaps_sbucaps1e7_classification_mlp_meanBCE_ems' in em_path:
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron_quixote/datasets/sbucaps/object_specific_positive_samples_sbucaps_filtered_set.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                elif 'sbucaps_clip_based_ems' in em_path:
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron/datasets/sbucaps/object_specific_positive_samples_sbucaps_clip_filtered.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                elif 'redcaps' in em_path:
+                    print("dataset am filter redcaps")
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron/datasets/sbucaps/object_specific_positive_samples_sbucaps_redcaps_am_filtered.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                elif 'ground_truth' in em_path:
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron/datasets/sbucaps/object_specific_positive_samples_ground_truth_filtered.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                elif 'ID' not in em_path and 'original' in em_path:
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron_quixote/datasets/sbucaps/object_specific_positive_samples_sbucaps_unfiltered.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                elif 'ID' in em_path or 'OOD' in em_path:
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron_quixote/datasets/sbucaps/object_specific_positive_samples_sbucaps_ID_unfiltered.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
+                else:
+                    print("Balanced mapping: default - filtered")
+                    with open("/afs/cs.pitt.edu/usr0/arr159/wetectron/datasets/sbucaps/object_specific_positive_samples_sbucaps_filtered_set.json", 'r') as f:
+                        self.balanced_mapping = json.load(f)
             del em_df
         self.indicies = self.df[self.df.apply(self.filter_df, axis=1)].index.values
-        print(f"Filtered out: {(len(self.df)-len(self.indicies))/len(self.df)}")
+        print(f"Filtered out: {(len(self.df)-len(self.indicies))/len(self.df)} of {len(self.df)}")
 
         if self.balanced_mapping is not None:
             img_ids = self.df[self.df.apply(self.filter_df, axis=1)]['img_id'].values
@@ -80,9 +127,19 @@ class SBUCapsDataset(torch.utils.data.Dataset):
             from collections import Counter
             print("Finished balancing -- new dataset size:", len(self.indicies))
             print("Top ten class counts:", Counter(class_counts_for_new_list).most_common(80))
-
+        if weak_det_exp_sample_size is not None:
+            self.sample(weak_det_exp_sample_size)
         #self.proposal_df.to_csv('sbucaps')
+    def sample(self, sample_size):
+        original_len = len(self.indicies)
+        self.indicies = random.sample(list(self.indicies), k=sample_size)
+        print(f"SCALE EXPERIMENT: {original_len} sampled down to --> {len(self)}")
+    def get_labels(self):
+        labels=[]
+        for i in tqdm(self.indicies):
+            labels.append(literal_eval(self.df.iloc[i]['em']))
 
+        return labels
     def filter_df(self, row):
         annot = self._preprocess_annotation(row)
         return len(annot['labels']) > 0
@@ -149,6 +206,9 @@ class SBUCapsDataset(torch.utils.data.Dataset):
                 difficult = 0
                 name = obj.replace(' ', '')
                 if name not in self.class_to_ind:
+                    continue
+                if self.class_subset is not None and name not in self.class_subset:
+                    # for weak det experiments
                     continue
                 # Make pixel indexes 0-based
                 # Refer to "https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/pascal_voc.py#L208-L211"

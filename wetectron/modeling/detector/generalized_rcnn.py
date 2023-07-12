@@ -34,7 +34,7 @@ class GeneralizedRCNN(nn.Module):
             self.rpn = build_rpn(cfg, self.backbone.out_channels)
         self.roi_heads = build_roi_heads(cfg, self.backbone.out_channels)
 
-    def forward(self, images, targets=None, rois=None, model_cdb=None):
+    def forward(self, images, targets=None, rois=None, model_cdb=None, threshold_fn=None):
         """
         Arguments:
             images (list[Tensor] or ImageList): images to be processed
@@ -58,7 +58,7 @@ class GeneralizedRCNN(nn.Module):
             proposals, proposal_losses = self.rpn(images, features, targets)
 
         if self.roi_heads:
-            x, result, detector_losses, accuracy = self.roi_heads(features, proposals, targets, model_cdb)
+            x, result, detector_losses, accuracy = self.roi_heads(features, proposals, targets, model_cdb, threshold_fn=threshold_fn)
         else:
             # RPN-only models don't have roi_heads
             x = features

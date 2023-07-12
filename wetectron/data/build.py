@@ -2,6 +2,8 @@
 import bisect
 import copy
 import logging
+import math
+
 import numpy as np
 
 import torch.utils.data
@@ -9,15 +11,15 @@ from wetectron.utils.comm import get_world_size
 from wetectron.utils.imports import import_file
 from wetectron.utils.miscellaneous import save_labels, seed_all_rng
 from wetectron.utils.model_zoo import cache_url
-
+from collections import defaultdict
 from . import datasets as D
 from . import samplers
 
 from .collate_batch import BatchCollator, BBoxAugCollator
 from .transforms import build_transforms
+from wetectron.utils.distributed_sampler_proxy import DistributedProxySampler
 
-
-def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, proposal_files=None, em_path=None):
+def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, proposal_files=None, em_path=None, ood_experiments=False, cfg=None):
     """
     Arguments:
         dataset_list (list[str]): Contains the names of the datasets, i.e.,
@@ -48,6 +50,11 @@ def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, prop
             args["use_difficult"] = not is_train
         elif data['factory'] == 'SBUCapsDataset':
             args['em_path'] = em_path
+            args['ood_experiments'] = ood_experiments
+            args['scale_exp'] = cfg.DATASETS.SBUCAPS_SCALE
+            args['weak_det_exp_sample_size'] = cfg.WEAK_DET_EXP.SAMPLE_SUBSET
+        elif data['factory'] == 'RedCapsDataset':
+            args['em_path'] = em_path
         args["transforms"] = transforms
         
         # load proposal
@@ -72,9 +79,27 @@ def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, prop
 
     return [dataset]
 
-
-def make_data_sampler(dataset, shuffle, distributed):
+def get_weights(dataset, t=0.001):
+    labels = dataset.get_labels()
+    label_count_lookup = defaultdict(int)
+    for label_vector in labels:
+        for label in label_vector:
+            label_count_lookup[label] += 1
+    total_labels = sum(label_count_lookup.values())
+    label_frequency_lookup = {label:count/total_labels for label, count in label_count_lookup.items()}
+    weights = []
+    for label_vector in labels:
+        weight=[]
+        for label in label_vector:
+            weight.append(math.sqrt(t/label_frequency_lookup[label]))
+        weights.append(max(weight))
+    return weights
+def make_data_sampler(dataset, shuffle, distributed, weighted_sampling=False, t=1e-3):
     if distributed:
+        if weighted_sampling:
+            weights = get_weights(dataset, t=t)
+            weighted_sampler = torch.utils.data.WeightedRandomSampler(weights, len(dataset), replacement=True)
+            return samplers.DistributedSampler(weighted_sampler)
         return samplers.DistributedSampler(dataset, shuffle=shuffle)
     if shuffle:
         sampler = torch.utils.data.sampler.RandomSampler(dataset)
@@ -173,14 +198,21 @@ def make_data_loader(cfg, is_train=True, is_distributed=False, start_iter=0):
     # If bbox aug is enabled in testing, simply set transforms to None and we will apply transforms later
     transforms = None if not is_train and cfg.TEST.BBOX_AUG.ENABLED else build_transforms(cfg, is_train)
     em_path = None if not is_train else cfg.DATASETS.EM_PATH
-    datasets = build_dataset(dataset_list, transforms, DatasetCatalog, is_train, proposal_files, em_path)
+    datasets = build_dataset(dataset_list, transforms, DatasetCatalog, is_train, proposal_files, em_path, cfg.DATASETS.OOD_EXPERIMENTS, cfg=cfg)
+
     if is_train:
         # save category_id to label name mapping
         save_labels(datasets, cfg.OUTPUT_DIR)
 
     data_loaders = []
     for dataset in datasets:
-        sampler = make_data_sampler(dataset, shuffle, is_distributed)
+        if cfg.DATALOADER.SCALE_EXP_PARAM < 1.0 and is_train:
+            dataset.sample_for_scale_exp(cfg.DATALOADER.SCALE_EXP_PARAM)
+        weighted_sampling = False
+        if isinstance(dataset, D.SBUCapsDataset) or isinstance(dataset, D.RedCapsDataset):
+            print("SBUCaps or RedCaps Dataset")
+            weighted_sampling = cfg.DATALOADER.WEIGHTED_SAMPLING and is_train
+        sampler = make_data_sampler(dataset, shuffle, is_distributed, weighted_sampling, cfg.DATALOADER.WEIGHTED_SAMPLING_THRESH)
         batch_sampler = make_batch_data_sampler(
             dataset, sampler, aspect_grouping, images_per_gpu, num_iters, start_iter
         )

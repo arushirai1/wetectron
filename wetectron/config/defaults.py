@@ -86,7 +86,10 @@ _C.DATASETS.TRAIN = ()
 _C.DATASETS.EM_PATH = None
 # List of the dataset names for testing, as present in paths_catalog.py
 _C.DATASETS.TEST = ()
-
+_C.DATASETS.OOD_EXPERIMENTS = False
+_C.DATASETS.SBUCAPS_SCALE = False
+_C.WEAK_DET_EXP = CN()
+_C.WEAK_DET_EXP.SAMPLE_SUBSET = None
 
 # -----------------------------------------------------------------------------
 # Pre-computed proposals
@@ -112,7 +115,9 @@ _C.DATALOADER.SIZE_DIVISIBILITY = 0
 # is compatible. This groups portrait images together, and landscape images
 # are not batched with portrait images.
 _C.DATALOADER.ASPECT_RATIO_GROUPING = True
-
+_C.DATALOADER.WEIGHTED_SAMPLING=False
+_C.DATALOADER.WEIGHTED_SAMPLING_THRESH = 0.001
+_C.DATALOADER.SCALE_EXP_PARAM = 1.0
 
 # ---------------------------------------------------------------------------- #
 # Backbone options

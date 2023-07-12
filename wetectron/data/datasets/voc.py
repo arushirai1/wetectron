@@ -50,11 +50,13 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             self.ids = f.readlines()
         self.ids = [x.strip("\n") for x in self.ids]
         self.id_to_img_map = {k: v for k, v in enumerate(self.ids)}
-        if 'test' in self.image_set:
-            from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL
-            self.cls = COCO_CATEGORIES_TO_PASCAL
-        else:
-            self.cls = PascalVOCDataset.CLASSES
+        # if 'test' in self.image_set:
+        #     from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL
+        #     self.cls = COCO_CATEGORIES_TO_PASCAL
+        # else:
+        #     self.cls = PascalVOCDataset.CLASSES
+        from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL
+        self.cls = COCO_CATEGORIES_TO_PASCAL
         self.class_to_ind = dict(zip(self.cls, range(len(self.cls))))
         self.categories = dict(zip(range(len(self.cls)), self.cls))
         # Include proposals from a file

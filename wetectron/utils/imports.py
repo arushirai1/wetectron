@@ -4,8 +4,9 @@
 # --------------------------------------------------------
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import torch
+from platform import python_version
 
-if torch._six.PY3:
+if python_version().startswith('3'):
     import importlib
     import importlib.util
     import sys

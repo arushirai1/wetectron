@@ -4,6 +4,7 @@
 # --------------------------------------------------------
 import torch
 from torch.nn import functional as F
+from torch import distributed as dist
 
 from wetectron.layers import smooth_l1_loss
 from wetectron.modeling import registry
@@ -11,9 +12,8 @@ from wetectron.modeling.utils import cat
 from wetectron.config import cfg
 from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
 from wetectron.modeling.matcher import Matcher
-
+from wetectron.utils.comm import all_gather, synchronize
 from .pseudo_label_generator import oicr_layer, mist_layer
-
 
 def generate_img_label(num_classes, labels, device):
     img_label = torch.zeros(num_classes)
@@ -54,7 +54,7 @@ class WSDDNLossComputation(object):
     def __init__(self, cfg):
         self.type = "WSDDN"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-10):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -82,6 +82,7 @@ class WSDDNLossComputation(object):
         final_score_list = final_score.split([len(p) for p in proposals])
         total_loss = 0
         accuracy_img = 0
+        breakpoint()
         for final_score_per_im, targets_per_im in zip(final_score_list, targets):
             labels_per_im = targets_per_im.get_field('labels').unique()
             labels_per_im = generate_img_label(class_score.shape[1], labels_per_im, device)
@@ -107,7 +108,7 @@ class RoILossComputation(object):
         else:
             raise ValueError('please use propoer ratio P.')
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-10):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -217,7 +218,7 @@ class RoIRegLossComputation(object):
             
         return pseudo_labels
 
-    def __call__(self, class_score, det_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-10):
+    def __call__(self, class_score, det_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-8, max_loss=100, threshold_fn=lambda x: 10000):
         class_score = cat(class_score, dim=0)
         class_score = F.softmax(class_score, dim=1)
         
@@ -244,13 +245,73 @@ class RoIRegLossComputation(object):
             return_loss_dict['loss_ref_cls%d'%i] = 0
             return_loss_dict['loss_ref_reg%d'%i] = 0
             return_acc_dict['acc_ref%d'%i] = 0
+        large_loss=True
+        if large_loss:
+            labels_one_hot=torch.stack([generate_img_label(class_score.shape[1], targets_per_im.get_field('labels').unique(), device) for targets_per_im in targets])
+            final_score_tensor=torch.stack([torch.sum(final_score_per_im, dim=0) for final_score_per_im in final_score_list])
+            final_score_tensor=torch.clamp(final_score_tensor, min=epsilon, max=1-epsilon)
+            loss_image_level=F.binary_cross_entropy(final_score_tensor, labels_one_hot.clamp(0, 1), reduction='none')
+            if torch.distributed.is_initialized() and threshold_fn is not None:
+                # max_losses[dist.get_rank()]=loss_image_level.max().detach().item()
+                output=torch.flatten(loss_image_level.detach())#.to(1)
+                # handle=dist.all_reduce(output, op=dist.ReduceOp.MAX)
+                output=all_gather(output)
+                max_loss = threshold_fn(torch.cat([o.cpu() for o in output], 0).max().item())
+
+                # if torch.distributed.get_rank()==0:
+                #     breakpoint()
+
+                #     max_loss = threshold_fn(output.max().cpu())#batch_losses_img_level.max().detach()
+                # world_size = torch.distributed.get_world_size()
+                # g0 = torch.distributed.new_group(ranks=[0,1,2,3])
+                # ## gather shapes first
+                # myshape = loss_image_level.shape
+                # mycount = loss_image_level.size
+                # shape_tensor = torch.Tensor(myshape).cuda()
+                # all_shape = [torch.Tensor(np.array(myshape)).cuda() for i in range(world_size)]
+                # torch.distributed.reduce(loss_image_level, max_loss, torch.distributed.ReduceOp.MAX, g0)
+                
+            else:
+                max_loss=1000
+
+            large_loss_mask=torch.zeros(loss_image_level.shape).type(torch.float64).to(device)
+            noisy_labels=torch.where(loss_image_level<max_loss, large_loss_mask, 1.)
+            corrected_labels_one_hot = abs(noisy_labels.type(torch.float32)-labels_one_hot) #corrected labels for next region loss step
+            large_loss_mask=torch.zeros(loss_image_level.shape).type(torch.float64).to(device)
+            large_loss_mask=torch.where(loss_image_level<max_loss, 1., large_loss_mask) 
+            loss_image_level=large_loss_mask.type(torch.float32)*loss_image_level
+
+            # output=all_gather(output)
+
 
         for idx, (final_score_per_im, targets_per_im, proposals_per_image) in enumerate(zip(final_score_list, targets, proposals)):
-            labels_per_im = targets_per_im.get_field('labels').unique()
-            labels_per_im = generate_img_label(class_score.shape[1], labels_per_im, device)
+            #labels_per_im = targets_per_im.get_field('labels').unique()
+            labels_per_im = corrected_labels_one_hot[idx] #generate_img_label(class_score.shape[1], labels_per_im, device) # TODO modify this line 
             # MIL loss
-            img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
-            return_loss_dict['loss_img'] += F.binary_cross_entropy(img_score_per_im, labels_per_im.clamp(0, 1))
+            try:
+                ### NEW
+                img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+                ### added line below for LLM exp
+                intermediate_results = F.binary_cross_entropy(img_score_per_im, labels_per_im.clamp(0, 1))#, reduce=False, reduction='none')
+                # max_losses.append(intermediate_results.max().detach())
+                # large_loss_mask=torch.zeros(intermediate_results.shape).type(torch.float64).to(device)
+                # noisy_labels=torch.where(intermediate_results>=max_loss, large_loss_mask, 1.) 
+                # labels_per_im = abs(noisy_labels.type(torch.float32)-labels_per_im) #corrected labels for next region loss step
+                # large_loss_mask=torch.where(intermediate_results<max_loss, large_loss_mask, 1.) 
+                # intermediate_results=large_loss_mask.type(torch.float32)*intermediate_results # stop gradients with large loss
+                #### OLD
+                # if torch.distributed.is_initialized():
+                #     world_size = torch.distributed.get_world_size()
+                #     ## gather shapes first
+                #     myshape = input_array.shape
+                #     mycount = input_array.size
+                #     shape_tensor = torch.Tensor(np.array(myshape)).cuda()
+                #     all_shape = [torch.Tensor(np.array(myshape)).cuda() for i in range(world_size)]
+                #     torch.distributed.all_gather
+                # breakpoint()
+                return_loss_dict['loss_img'] += intermediate_results #loss_image_level[idx].mean()#intermediate_results.mean()
+            except:
+                breakpoint()
 
             # Region loss
             for i in range(num_refs):
@@ -258,7 +319,9 @@ class RoIRegLossComputation(object):
                 pseudo_labels, loss_weights, regression_targets = self.roi_layer(
                     proposals_per_image, source_score, labels_per_im, device, return_targets=True
                 )
+                assert self.roi_refine == False
                 if self.roi_refine:
+                    # defined as false for now
                     pseudo_labels = self.filter_pseudo_labels(pseudo_labels, proposals_per_image, targets_per_im)
 
                 lmda = 3 if i == 0 else 1

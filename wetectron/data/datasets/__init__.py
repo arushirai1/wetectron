@@ -3,4 +3,5 @@ from .coco import COCODataset
 from .voc import PascalVOCDataset
 from .concat_dataset import ConcatDataset
 from .sbucaps import SBUCapsDataset
-__all__ = ["COCODataset", "ConcatDataset", "PascalVOCDataset", "SBUCapsDataset"]
+from .redcaps import RedCapsDataset
+__all__ = ["COCODataset", "ConcatDataset", "PascalVOCDataset", "SBUCapsDataset", "RedCapsDataset"]

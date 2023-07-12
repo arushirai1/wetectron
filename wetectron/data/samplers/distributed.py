@@ -56,6 +56,10 @@ class DistributedSampler(Sampler):
         offset = self.num_samples * self.rank
         indices = indices[offset : offset + self.num_samples]
         assert len(indices) == self.num_samples
+        
+        if isinstance(self.dataset, Sampler):
+            orig_indices = list(iter(self.dataset))
+            indices = [orig_indices[i] for i in indices]
 
         return iter(indices)
 
