@@ -29,13 +29,14 @@ from wetectron.utils.logger import setup_logger
 from wetectron.utils.miscellaneous import mkdir, save_config, seed_all_rng
 from wetectron.utils.metric_logger import (MetricLogger, TensorboardLogger)
 from wetectron.modeling.cdb import ConvConcreteDB
+import wandb
 
 try:
     from apex import amp
 except ImportError:
     raise ImportError('Use APEX for multi-precision via apex.amp')
 
-def train(cfg, local_rank, distributed, use_tensorboard=False):
+def train(cfg, local_rank, distributed, use_tensorboard=False, wandb=None):
     model = build_detection_model(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     model.to(device)
@@ -65,6 +66,7 @@ def train(cfg, local_rank, distributed, use_tensorboard=False):
     extra_checkpoint_data = checkpointer.load(cfg.MODEL.WEIGHT)
     arguments.update(extra_checkpoint_data)
 
+    #PLACE DATALOADER BACK HERE
     data_loader = make_data_loader(
         cfg,
         is_train=True,
@@ -81,6 +83,7 @@ def train(cfg, local_rank, distributed, use_tensorboard=False):
         meters = MetricLogger(delimiter="  ")
         
     do_train(
+        wandb,
         model,
         data_loader,
         optimizer,
@@ -95,7 +98,7 @@ def train(cfg, local_rank, distributed, use_tensorboard=False):
     return model
 
 
-def train_cdb(cfg, local_rank, distributed, use_tensorboard=False):
+def train_cdb(cfg, local_rank, distributed, use_tensorboard=False, wandb=None):
     model = build_detection_model(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     model.to(device)
@@ -152,6 +155,7 @@ def train_cdb(cfg, local_rank, distributed, use_tensorboard=False):
         meters = MetricLogger(delimiter="  ")
 
     do_train_cdb(
+        wandb,
         model, model_cdb,
         data_loader,
         optimizer, optimizer_cdb,
@@ -227,7 +231,7 @@ def main():
 
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = num_gpus > 1
-
+    print(num_gpus, args.distributed, args.local_rank)
     if args.distributed:
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(
@@ -264,20 +268,33 @@ def main():
     logger.info("Saving config into: {}".format(output_config_path))
     # save overloaded model config in the output directory
     save_config(cfg, output_config_path)
+    run = None
+    if args.local_rank == 0:  # only on main process
+        run = wandb.init(project="wetectron", config={}, reinit=True)
+
+        # Initialize wandb run
+        run.config.update({
+            "outdir": cfg.OUTPUT_DIR,
+            "learning_rate": cfg.SOLVER.BASE_LR,
+            "max_iter": cfg.SOLVER.MAX_ITER,
+            "batch_size": cfg.SOLVER.IMS_PER_BATCH
+        })
 
     if cfg.DB.METHOD == "concrete":
         model = train_cdb(
             cfg=cfg,
             local_rank=args.local_rank,
             distributed=args.distributed,
-            use_tensorboard=args.use_tensorboard
+            use_tensorboard=args.use_tensorboard,
+            wandb=run
         )
     else:
         model = train(
             cfg=cfg,
             local_rank=args.local_rank,
             distributed=args.distributed,
-            use_tensorboard=args.use_tensorboard
+            use_tensorboard=args.use_tensorboard,
+            wandb=run
         )
 
     if not args.skip_test:

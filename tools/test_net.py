@@ -21,12 +21,12 @@ from wetectron.utils.collect_env import collect_env_info
 from wetectron.utils.comm import synchronize, get_rank
 from wetectron.utils.logger import setup_logger
 from wetectron.utils.miscellaneous import mkdir
-
 # Check if we can enable mixed-precision via apex.amp
 try:
     from apex import amp
 except ImportError:
     raise ImportError('Use APEX for mixed precision via apex.amp')
+
 
 
 def main():
