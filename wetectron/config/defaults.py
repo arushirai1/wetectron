@@ -87,6 +87,7 @@ _C.DATASETS.EM_PATH = None
 # List of the dataset names for testing, as present in paths_catalog.py
 _C.DATASETS.TEST = ()
 _C.DATASETS.OOD_EXPERIMENTS = False
+_C.DATASETS.VOC_CLASSES_ONLY = False
 _C.DATASETS.SBUCAPS_SCALE = False
 _C.WEAK_DET_EXP = CN()
 _C.WEAK_DET_EXP.SAMPLE_SUBSET = None

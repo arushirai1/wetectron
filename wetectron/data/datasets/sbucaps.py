@@ -22,7 +22,7 @@ class SBUCapsDataset(torch.utils.data.Dataset):
 
     CLASSES = tuple(get_coco_labels())
 
-    def __init__(self, data_dir, use_difficult=False, transforms=None, proposal_file=None, em_path=None, ood_experiments=False, scale_exp=False, weak_det_exp_sample_size=None):
+    def __init__(self, data_dir, use_difficult=False, transforms=None, proposal_file=None, em_path=None, ood_experiments=False, scale_exp=False, weak_det_exp_sample_size=None, voc_classes_only=False):
         self.root = data_dir
         self.transforms = transforms
 
@@ -38,7 +38,7 @@ class SBUCapsDataset(torch.utils.data.Dataset):
         self.df = self.df.reset_index()
         cls = SBUCapsDataset.CLASSES
         self.class_to_ind = dict(zip(cls, range(len(cls))))
-        if weak_det_exp_sample_size is not None:
+        if voc_classes_only or weak_det_exp_sample_size is not None:
             # restrict to only VOC classes
             from wetectron.utils.visualize import coco_category_names_pascal_index
             self.class_subset = coco_category_names_pascal_index

@@ -53,6 +53,7 @@ def build_dataset(dataset_list, transforms, dataset_catalog, is_train=True, prop
             args['ood_experiments'] = ood_experiments
             args['scale_exp'] = cfg.DATASETS.SBUCAPS_SCALE
             args['weak_det_exp_sample_size'] = cfg.WEAK_DET_EXP.SAMPLE_SUBSET
+            args['voc_classes_only'] = cfg.DATASETS.VOC_CLASSES_ONLY
         elif data['factory'] == 'RedCapsDataset':
             args['em_path'] = em_path
         args["transforms"] = transforms

@@ -1,0 +1,53 @@
+DTYPE: 'float16'
+MODEL:
+  META_ARCHITECTURE: "GeneralizedRCNN"
+  WEIGHT: "catalog://VGGImageNetPretrained/JCJOHNS/VGG-16" 
+  BACKBONE:
+    CONV_BODY: "VGG16-OICR"
+  WSOD_ON: True
+  FASTER_RCNN: False
+  ROI_HEADS:
+    SCORE_THRESH: 0.0
+    NMS: 0.3
+  ROI_BOX_HEAD:
+    POOLER_METHOD: "ROIPool"
+    POOLER_RESOLUTION: 7
+    POOLER_SCALES: (0.125,)
+    FEATURE_EXTRACTOR: "VGG16.roi_head"
+  ROI_WEAK_HEAD:
+    PREDICTOR: "MISTPredictor"
+    LOSS: "RoIRegLoss"
+    OICR_P: 0.15
+    REGRESS_ON: True
+DATASETS:
+  EM_PATH: "/afs/cs.pitt.edu/usr0/arr159/standard_multimodal_analysis/multimodal_analysis/nn_based_alignment/sbucaps_sbucaps1e7_classification_mlp_meanBCE_ems.csv"
+  TRAIN: ("voc_2007_train", "voc_2007_val",)
+  TEST: ("voc_2007_test",)
+PROPOSAL_FILES:
+  TRAIN: ('proposal/SS-voc_2007_train-boxes.pkl','proposal/SS-voc_2007_val-boxes.pkl',)
+  TEST:  ('proposal/SS-voc_2007_test-boxes.pkl',)
+DATALOADER:
+  SIZE_DIVISIBILITY: 8
+  WEIGHTED_SAMPLING: True
+INPUT:
+  MIN_SIZE_TRAIN: (480, 576, 688, 864, 1000, 1200) 
+  MAX_SIZE_TRAIN: 2000
+  MIN_SIZE_TEST: 800
+  MAX_SIZE_TEST: 2000
+SOLVER:
+  IMS_PER_BATCH: 4
+  BASE_LR: 0.01
+  WEIGHT_DECAY: 0.0001
+  STEPS: (30000, 46700)
+  MAX_ITER: 50100
+  ITER_SIZE: 2
+  CHECKPOINT_PERIOD: 10000
+TEST:
+  IMS_PER_BATCH: 4
+  BBOX_AUG:
+    ENABLED: True
+    HEUR: "AVG"
+    H_FLIP: True
+    SCALES: (480, 576, 688, 864, 1000, 1200) 
+    MAX_SIZE: 2000
+    SCALE_H_FLIP: True
