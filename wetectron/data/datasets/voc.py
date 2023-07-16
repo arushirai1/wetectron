@@ -116,6 +116,21 @@ class PascalVOCDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.ids)
 
+    def get_labels(self):
+        labels=[]
+        for img_id in tqdm(self.ids):
+            objects=[]
+            target = ET.parse(self._annopath % img_id).getroot()
+            for obj in target.iter("object"):
+                difficult = int(obj.find("difficult").text) == 1
+                if not self.keep_difficult and difficult:
+                    continue
+                name = obj.find("name").text.lower().strip()
+                objects.append(COCO_CATEGORIES[self.class_to_ind[name]]) #must be the coco name
+            labels.append(objects)
+
+        return labels
+
     def get_groundtruth(self, index):
         img_id = self.ids[index]
         anno = ET.parse(self._annopath % img_id).getroot()

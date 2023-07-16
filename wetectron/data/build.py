@@ -210,8 +210,9 @@ def make_data_loader(cfg, is_train=True, is_distributed=False, start_iter=0):
         if cfg.DATALOADER.SCALE_EXP_PARAM < 1.0 and is_train:
             dataset.sample_for_scale_exp(cfg.DATALOADER.SCALE_EXP_PARAM)
         weighted_sampling = False
-        if isinstance(dataset, D.SBUCapsDataset) or isinstance(dataset, D.RedCapsDataset):
-            print("SBUCaps or RedCaps Dataset")
+        if cfg.DATALOADER.WEIGHTED_SAMPLING and is_train: #isinstance(dataset, D.SBUCapsDataset) or isinstance(dataset, D.RedCapsDataset):
+            # print("SBUCaps or RedCaps Dataset")
+            print(dataset, "-- WEIGHTED SAMPLING")
             weighted_sampling = cfg.DATALOADER.WEIGHTED_SAMPLING and is_train
         sampler = make_data_sampler(dataset, shuffle, is_distributed, weighted_sampling, cfg.DATALOADER.WEIGHTED_SAMPLING_THRESH)
         batch_sampler = make_batch_data_sampler(
