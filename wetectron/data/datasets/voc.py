@@ -5,7 +5,7 @@ import torch
 import torch.utils.data
 from PIL import Image
 import xml.etree.ElementTree as ET
-
+from tqdm import tqdm 
 from wetectron.structures.bounding_box import BoxList
 from wetectron.structures.boxlist_ops import remove_small_boxes
 from .coco import unique_boxes

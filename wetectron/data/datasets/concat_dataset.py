@@ -9,7 +9,12 @@ class ConcatDataset(_ConcatDataset):
     Same as torch.utils.data.dataset.ConcatDataset, but exposes an extra
     method for querying the sizes of the image
     """
-
+    def get_labels(self):
+        labels = []
+        for idx in range(len(self.datasets)):
+            labels.extend(self.datasets[idx].get_labels())
+        return labels
+    
     def get_idxs(self, idx):
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
         if dataset_idx == 0:
