@@ -5,10 +5,12 @@ import torch
 import torch.utils.data
 from PIL import Image
 import xml.etree.ElementTree as ET
-from tqdm import tqdm 
+from tqdm import tqdm
 from wetectron.structures.bounding_box import BoxList
 from wetectron.structures.boxlist_ops import remove_small_boxes
 from .coco import unique_boxes
+from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL, COCO_CATEGORIES
+
 
 class PascalVOCDataset(torch.utils.data.Dataset):
 
@@ -55,7 +57,6 @@ class PascalVOCDataset(torch.utils.data.Dataset):
         #     self.cls = COCO_CATEGORIES_TO_PASCAL
         # else:
         #     self.cls = PascalVOCDataset.CLASSES
-        from wetectron.utils.visualize import COCO_CATEGORIES_TO_PASCAL
         self.cls = COCO_CATEGORIES_TO_PASCAL
         self.class_to_ind = dict(zip(self.cls, range(len(self.cls))))
         self.categories = dict(zip(range(len(self.cls)), self.cls))
