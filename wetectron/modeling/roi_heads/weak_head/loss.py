@@ -177,6 +177,7 @@ class RoIRegLossComputation(object):
     """ Generic roi-level loss """
     def __init__(self, cfg):        
         refine_p = cfg.MODEL.ROI_WEAK_HEAD.OICR_P
+        self.apply_large_loss = cfg.MODEL.ROI_WEAK_HEAD.LLM
         if refine_p == 0:
             self.roi_layer = oicr_layer()
         elif refine_p > 0 and refine_p < 1:
@@ -251,7 +252,8 @@ class RoIRegLossComputation(object):
             final_score_tensor=torch.stack([torch.sum(final_score_per_im, dim=0) for final_score_per_im in final_score_list])
             final_score_tensor=torch.clamp(final_score_tensor, min=epsilon, max=1-epsilon)
             loss_image_level=F.binary_cross_entropy(final_score_tensor, labels_one_hot.clamp(0, 1), reduction='none')
-            if torch.distributed.is_initialized() and threshold_fn is not None:
+            if torch.distributed.is_initialized() and self.apply_large_loss:
+                assert threshold_fn is not None
                 # max_losses[dist.get_rank()]=loss_image_level.max().detach().item()
                 output=torch.flatten(loss_image_level.detach())#.to(1)
                 # handle=dist.all_reduce(output, op=dist.ReduceOp.MAX)

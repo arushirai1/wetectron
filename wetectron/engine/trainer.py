@@ -28,14 +28,15 @@ def reduce_loss_dict(loss_dict):
             all_losses.append(loss_dict[k])
         all_losses = torch.stack(all_losses, dim=0)
         torch.distributed.reduce(all_losses, dst=0)
-        if torch.distributed.get_rank() == 0:
+        if get_rank() == 0:
             # only main process gets accumulated, so only divide by
             # world_size in this case
             all_losses /= world_size
         reduced_losses = {k: v for k, v in zip(loss_names, all_losses)}
     return reduced_losses
 
-def update_momentum(optimizer, cur_lr, new_lr, logger, SCALE_MOMENTUM_THRESHOLD = 1.1, eps = 1e-10):
+
+def update_momentum(optimizer, cur_lr, new_lr, logger, SCALE_MOMENTUM_THRESHOLD=1.1, eps=1e-10):
     """Update momentum as Sutskever et. al. and implementations in some other frameworks."""
     import numpy as np
     ratio = np.max((new_lr / np.max((cur_lr, eps)), cur_lr / np.max((new_lr, eps))))
@@ -48,20 +49,30 @@ def update_momentum(optimizer, cur_lr, new_lr, logger, SCALE_MOMENTUM_THRESHOLD 
         for p_key in param_keys:
             param_state = optimizer.state[p_key]
             if 'momentum_buffer' in param_state:
-                param_state['momentum_buffer'] *= correction    
+                param_state['momentum_buffer'] *= correction
+
+
+def llm_metric(x, i, rel_delta=0.001):
+    if i > 0:
+        rel_percentage = max(0.5, (1 - (i - 1) * rel_delta))
+        return x * rel_percentage
+    else:
+        return 1000000  # return high loss
+
 
 def do_train(
-    wandb,
-    model,
-    data_loader,
-    optimizer,
-    scheduler,
-    checkpointer,
-    device,
-    checkpoint_period,
-    arguments,
-    meters,
-):
+        wandb,
+        model,
+        data_loader,
+        optimizer,
+        scheduler,
+        checkpointer,
+        device,
+        checkpoint_period,
+        arguments,
+        meters,
+        llm
+    ):
     logger = logging.getLogger("wetectron.trainer")
     logger.info("Start training")
     max_iter = len(data_loader)
@@ -70,10 +81,15 @@ def do_train(
     model.train()
     start_training_time = time.time()
     end = time.time()
+    batch_size = 8
+    iterations_per_epoch = len(data_loader.dataset) // batch_size
+    threshold_fn = lambda max_loss: llm_metric(max_loss, epoch) if llm else None
+    logger.info("LLM: ", llm, threshold_fn)
 
     for iteration, (images, targets, rois, _) in enumerate(data_loader, start_iter):
         if any(len(target) < 1 for target in targets):
-            logger.error(f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}" )
+            logger.error(
+                f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}")
             continue
 
         data_time = time.time() - end
@@ -84,26 +100,26 @@ def do_train(
             new_lr = optimizer.param_groups[0]["lr"]
             if cur_lr > 1e-7 and cur_lr != new_lr:
                 update_momentum(optimizer, cur_lr, new_lr, logger)
-        
+
         iteration = iteration + 1
         arguments["iteration"] = iteration
-    
+
         images = images.to(device)
         targets = [target.to(device) for target in targets]
         rois = [r.to(device) if r is not None else None for r in rois]
-
-        loss_dict, metrics = model(images, targets, rois)
+        epoch = iteration // iterations_per_epoch
+        loss_dict, metrics = model(images, targets, rois,
+                                   threshold_fn=threshold_fn)   #, rel_delta=rel_delta))
         losses = sum(loss for loss in loss_dict.values())
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
         meters.update(loss=losses_reduced, **loss_dict_reduced)
-        
+
         # accuracy
         metrics_reduced = reduce_loss_dict(metrics)
         meters.update(**metrics_reduced)
 
-        
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
         with amp.scale_loss(losses, optimizer) as scaled_losses:
@@ -121,8 +137,7 @@ def do_train(
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
         if iteration % 20 == 0 or iteration == max_iter:
-            if torch.distributed.get_rank() == 0:
-
+            if get_rank() == 0:
                 logging_items = {key: smoothed_val.avg for key, smoothed_val in
                                  meters.meters.items()
                                  }
@@ -161,20 +176,20 @@ def do_train(
 
 
 def do_train_cdb(
-    wandb,
-    model,
-    model_cdb,
-    data_loader,
-    optimizer,
-    optimizer_cdb,
-    scheduler,
-    scheduler_cdb,
-    checkpointer,
-    device,
-    checkpoint_period,
-    arguments,
-    meters,
-    cfg
+        wandb,
+        model,
+        model_cdb,
+        data_loader,
+        optimizer,
+        optimizer_cdb,
+        scheduler,
+        scheduler_cdb,
+        checkpointer,
+        device,
+        checkpoint_period,
+        arguments,
+        meters,
+        cfg
 ):
     logger = logging.getLogger("wetectron.trainer")
     logger.info("Start training")
@@ -184,10 +199,10 @@ def do_train_cdb(
     model_cdb.train()
     start_training_time = time.time()
     end = time.time()
-
     for iteration, (images, targets, rois, _) in enumerate(data_loader, start_iter):
         if any(len(target) < 1 for target in targets):
-            logger.error(f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}" )
+            logger.error(
+                f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}")
             continue
         data_time = time.time() - end
         iteration = iteration + 1
@@ -200,7 +215,7 @@ def do_train_cdb(
         if cur_lr > 1e-7 and cur_lr != new_lr:
             update_momentum(optimizer, cur_lr, new_lr, logger)
             update_momentum(optimizer_cdb, cur_lr, new_lr, logger)
-        
+
         images = images.to(device)
         targets = [target.to(device) for target in targets]
         rois = [r.to(device) if r is not None else None for r in rois]
@@ -211,7 +226,7 @@ def do_train_cdb(
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
         meters.update(loss=losses_reduced, **loss_dict_reduced)
-        
+
         # accuracy
         metrics_reduced = reduce_loss_dict(metrics)
         meters.update(**metrics_reduced)
@@ -240,10 +255,9 @@ def do_train_cdb(
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
         if iteration % 20 == 0 or iteration == max_iter:
-            logging_items={ key: smoothed_val.avg for key, smoothed_val in
-                meters.meters
-            }
-            breakpoint()
+            logging_items = {key: smoothed_val.avg for key, smoothed_val in
+                             meters.meters
+                             }
             logging_items['iteration'] = iteration
             wandb.log(logging_items)
             logger.info(

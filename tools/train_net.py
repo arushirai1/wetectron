@@ -92,7 +92,8 @@ def train(cfg, local_rank, distributed, use_tensorboard=False, wandb=None):
         device,
         checkpoint_period,
         arguments,
-        meters
+        meters,
+        llm = cfg.MODEL.ROI_WEAK_HEAD.LLM
     )
 
     return model
